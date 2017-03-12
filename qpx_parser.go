@@ -17,6 +17,11 @@ import (
 const QPX_URL = "https://www.googleapis.com/qpxExpress/v1/trips/search?key=" + API_KEY
 const JSON_TYPE = "application/json"
 
+type AppConfig struct {
+    DryRun bool
+    CacheOK bool
+}
+
 // QPX Request Items
 type FlightsRequest struct {
     NumPassengers int
@@ -173,7 +178,7 @@ func BuildQPXRequest(req FlightsRequest) (qpxReq QPXRequest) {
 
 }
 
-func MakeQPXRequest(qpxReq QPXRequest) (qpxRes QPXResult, success bool) {
+func MakeQPXRequest(qpxReq QPXRequest, config AppConfig) (qpxRes QPXResult, success bool) {
 
     // fmt.Printf("QPX Request: %+v\n", qpxReq)
 
@@ -192,7 +197,7 @@ func MakeQPXRequest(qpxReq QPXRequest) (qpxRes QPXResult, success bool) {
         fmt.Printf("Error creating hash for QPX request: %s\n", hashError)
     }
 
-    if DryRun {
+    if config.DryRun {
         fmt.Println("Would have sent QPX Request: ")
         fmt.Printf("%+v\n", reqBuf.String())
         success = false
@@ -207,7 +212,7 @@ func MakeQPXRequest(qpxReq QPXRequest) (qpxRes QPXResult, success bool) {
     isCacheableResponse := false
 
     file, fileError := ioutil.ReadFile(cacheFile)
-    if fileError != nil || !CacheOK {
+    if fileError != nil || !config.CacheOK {
 
         // fmt.Printf("Cache miss: %s\n", fileError)
         res, httpError := http.Post(QPX_URL, JSON_TYPE, reqBuf)

@@ -5,70 +5,23 @@ import (
     // "github.com/davecgh/go-spew/spew"
     "fmt"
     "sort"
-    "github.com/fatih/color"
 )
-
-var DryRun bool
-var CacheOK bool
-
 
 
 func main() {
 
-    input := InputParams{
-        OriginAirports: []string{"SFO", "SJC"},
-        DestAirport: "BOS",
-        Outbound: DirectionParams{
-            DateRange: [2]string{"2017-03-22", "2017-03-24"},
-            RedEyeOnly: true,
-        },
-        Inbound: DirectionParams{
-            DateRange: [2]string{"2017-03-26", "2017-03-27"},
-        },
-        MaxTripLength: 5,
-        NumPassengers: 1,
-        DryRun: false,
-        CacheOK: true,
+    // Input is defined in input.go
+
+    config := AppConfig{
+        DryRun: Input.DryRun,
+        CacheOK: Input.CacheOK,
     }
 
-    /*input := InputParams{
-        OriginAirport: "BDL",
-        DestAirports: []string{"SFO", "SJC"},
-        Outbound: DirectionParams{
-            DateRange: [2]string{"2017-03-29", "2017-03-31"},
-        },
-        Inbound: DirectionParams{
-            DateRange: [2]string{"2017-04-02", "2017-04-03"},
-        },
-        NumPassengers: 2,
-        MinTripLength: 4,
-        DryRun: false,
-        CacheOK: true,
-    }*/
-
-    DryRun = input.DryRun
-    CacheOK = input.CacheOK
-
-    // spew.Dump(input.GetOriginAirports())
-    // spew.Dump(input.GetDestAirports())
-    // spew.Dump(input.GetValidDateRanges())
-    
-    reqList := BuildFlightRequest(input)
-    // spew.Dump(reqList)
-    resList := makeParallelQPXRequests(reqList)
+    reqList := BuildFlightRequest(Input)
+    resList := MakeParallelQPXRequests(reqList, config)
     options, successes := FlattenResponses(resList)
 
-    successFont := color.New(color.FgGreen, color.Bold)
-    failureFont := color.New(color.FgRed, color.Bold)
-
-    if successes == len(reqList) {
-        successFont.Printf("All %d queries return successfully!\n", successes)
-    } else {
-        failureFont.Printf("Errors! Only %d/%d queries returned successfully.\n", successes, len(reqList))
-    }
-
-    
-    PrintResults(options)
+    PrintResults(options, len(reqList), successes)
 
 }
 
@@ -105,7 +58,14 @@ func BuildFlightRequest(input InputParams) (reqList []FlightsRequest) {
     return
 }
 
-func makeParallelQPXRequests(reqList []FlightsRequest) (resList []FlightsResult) {
+/**
+ * Given a list of requests to make, perform them in parallel and return
+ *     once all results are in.
+ *
+ * Also handles rate limiting for QPX API.
+ */
+func MakeParallelQPXRequests(reqList []FlightsRequest, config AppConfig) (
+    resList []FlightsResult) {
 
     c := make(chan FlightsResult, len(reqList))
     processed := 0
@@ -113,7 +73,7 @@ func makeParallelQPXRequests(reqList []FlightsRequest) (resList []FlightsResult)
 
     for _,req := range reqList {
         <-limiter  // Don't overload QPX
-        go parallelQPXRequestHandler(req, c)
+        go ParallelQPXRequestHandler(req, config, c)
     }
 
     for i := 0; i < len(reqList); i++ {
@@ -127,16 +87,28 @@ func makeParallelQPXRequests(reqList []FlightsRequest) (resList []FlightsResult)
 
 }
 
-func parallelQPXRequestHandler(req FlightsRequest, c chan FlightsResult) {
+/**
+ * Create a request given a set of parameters, make it, and convert it to a more
+ *     usable result.
+ */
+func ParallelQPXRequestHandler(req FlightsRequest, config AppConfig, 
+    c chan FlightsResult) {
 
     qpxReq := BuildQPXRequest(req)
-    qpxRes, success := MakeQPXRequest(qpxReq)
+    qpxRes, success := MakeQPXRequest(qpxReq, config)
     res := InterpretQPXResult(qpxRes, success)
     c <- res
 
 }
 
-func FlattenResponses(resList []FlightsResult) (optionsList FlightsResultOptionList, successes int) {
+
+
+/**
+ * Transform a list of objects containing lists of flight options to just one 
+ *     list of flight options.
+ */
+func FlattenResponses(resList []FlightsResult) (
+    optionsList FlightsResultOptionList, successes int) {
 
     for _,result := range resList {
         if result.Success {
