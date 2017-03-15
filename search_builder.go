@@ -27,6 +27,7 @@ type InputParams struct {
 
 type DirectionParams struct {
 	Date string
+	Dates []string
 	DateRange [2]string
 	WeekdayExclusions string
 
@@ -55,23 +56,30 @@ func (input InputParams) GetValidDateRanges() ([][]time.Time) {
 
 	var possibleOutboundDates, possibleInboundDates []time.Time
 
-	// Turn the upper and lower bounds of the dates into lists
+	// Create a list of the possible dates, based on what's given
 	if len(input.Outbound.Date) > 0 {
-		possibleOutboundDates = DateRangeToList(
-			input.Outbound.Date, input.Outbound.Date, "")
+		possibleOutboundDates = []time.Time{
+			DateStringToTime(input.Outbound.Date) }
+	} else if (len(input.Outbound.Dates) > 0) {
+		possibleOutboundDates = DateListToTimeList(input.Outbound.Dates)
 	} else {
-		possibleOutboundDates = DateRangeToList(
-			input.Outbound.DateRange[0], input.Outbound.DateRange[1], input.Outbound.WeekdayExclusions)
-	}
-	if len(input.Inbound.Date) > 0 {
-		possibleInboundDates = DateRangeToList(
-			input.Inbound.Date, input.Inbound.Date, "")
-	} else {
-		possibleInboundDates = DateRangeToList(
-			input.Inbound.DateRange[0], input.Inbound.DateRange[1], input.Inbound.WeekdayExclusions)
+		possibleOutboundDates = DateRangeToTimeList(
+			input.Outbound.DateRange[0], input.Outbound.DateRange[1],
+			input.Outbound.WeekdayExclusions)
 	}
 
-	// Now interleave all the dates into pairs
+	if len(input.Inbound.Date) > 0 {
+		possibleInboundDates = []time.Time{
+			DateStringToTime(input.Inbound.Date) }
+	} else if (len(input.Inbound.Dates) > 0) {
+		possibleInboundDates = DateListToTimeList(input.Inbound.Dates)
+	} else {
+		possibleInboundDates = DateRangeToTimeList(
+			input.Inbound.DateRange[0], input.Inbound.DateRange[1],
+			input.Inbound.WeekdayExclusions)
+	}
+
+	// Calculate the min and max duration in seconds (how Go wants it)
 	var minDuration, maxDuration time.Duration
 
     if input.MinTripLength > 0 {
@@ -85,6 +93,7 @@ func (input InputParams) GetValidDateRanges() ([][]time.Time) {
         maxDuration = time.Duration(math.MaxInt64)
     }
 
+	// Now interleave all the dates into pairs
     var ranges [][]time.Time
     for _,outboundDate := range possibleOutboundDates {
         for _,inboundDate := range possibleInboundDates {
@@ -99,24 +108,19 @@ func (input InputParams) GetValidDateRanges() ([][]time.Time) {
 
 }
 
-func DateRangeToList(start, end, dayRestrictions string) (validDates []time.Time) {
-
-	const DATE_FMT = "2006-01-02"
-
-	var dStart, dEnd time.Time
-	var err error
-	dStart, err = time.Parse(DATE_FMT, start)
-	if err != nil {
-		fmt.Printf("Could not interpret date: %s\n", start)
-		os.Exit(1)
+func DateListToTimeList(dates []string) (validDates []time.Time) {
+	for _, d := range dates {
+		validDates = append(validDates, DateStringToTime(d))
 	}
-	dEnd, err = time.Parse(DATE_FMT, end)
-	if err != nil {
-		fmt.Printf("Could not interpret date: %s\n", end)
-		os.Exit(1)
-	}
+	return
+}
 
-	dEndUpperBound := dEnd.AddDate(0,0,1)
+func DateRangeToTimeList(start, end, dayRestrictions string) (validDates []time.Time) {
+
+	dStart := DateStringToTime(start)
+	dEnd := DateStringToTime(end)
+
+	dEndUpperBound := dEnd.AddDate(0,0,1) // Add 1 day to make range inclusive
 	for d := dStart; d.Before(dEndUpperBound); d = d.AddDate(0,0,1) {
 		if IsDayAllowed(d.Weekday(), dayRestrictions) {
 			validDates = append(validDates, d)
@@ -125,6 +129,16 @@ func DateRangeToList(start, end, dayRestrictions string) (validDates []time.Time
 
 	return
 
+}
+
+func DateStringToTime(dateStr string) (time.Time) {
+	const DATE_FMT = "2006-01-02"
+	d, err := time.Parse(DATE_FMT, dateStr)
+	if err != nil {
+		fmt.Printf("Could not interpret date: %s\n", dateStr)
+		os.Exit(1)
+	}
+	return d
 }
 
 func IsDayAllowed(d time.Weekday, dayRestrictions string) (bool) {
